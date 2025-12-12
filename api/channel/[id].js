@@ -1,14 +1,131 @@
-export default async function handler(req, res) {
-  const { id } = req.query;
+const express = require('express')
+const fetch = require('node-fetch')
 
-  if (!id) {
-    return res.status(400).send("Missing channel ID");
+const cache = require('./cache')
+
+const app = express()
+
+const getLiveStream = async (url) => {
+  const data = await cache.get(url)
+
+  if (data) {
+    // console.log('using data from cache:', url)
+    return JSON.parse(data)
+  } else {
+    const response = await fetch(url)
+
+    if (response.ok) {
+      const text = await response.text()
+      const stream = text.match(/(?<=hlsManifestUrl":").*\.m3u8/)?.[0]
+      const name = text.match(/(?<=channelName":")[^"]*/)?.[0]
+      const logo = text.match(/(?<=owner":{"videoOwnerRenderer":{"thumbnail":{"thumbnails":\[{"url":")[^=]*/)?.[0]
+
+      if (stream) {
+        const data = { name, stream, logo }
+
+        await cache.set(url, JSON.stringify(data), { EX: 300 })
+
+        return data
+      } else {
+        throw Error(`Stream not found for Youtube URL: ${url}`)
+      }
+    } else {
+      throw Error(`Youtube URL (${url}) failed with status: ${response.status}`)
+    }
+  }
+}
+
+const track = async (user, event) => {
+  // console.log('track:', user, event)
+
+  await fetch(`https://www.google-analytics.com/mp/collect?measurement_id=${process.env.GA_MEASUREMENT_ID}&api_secret=${process.env.GA_API_SECRET}`, {
+    method: 'POST',
+    body: JSON.stringify({
+      client_id: process.env.GA_CLIENT_ID,
+      user_id: user.id,
+      events: [event, {
+        name: 'client',
+        params: user.properties
+      }]
+    })
+  })
+          }
+app.use(require('express-status-monitor')())
+
+app.use((req, res, nxt) => {
+  // console.log('headers:', req.headers)
+
+  req.user = {
+    id: req.headers['cf-connecting-ip'] || req.ip,
+    properties: {
+      country: req.headers['cf-ipcountry'],
+      ua: req.headers['user-agent']
+    }
   }
 
-  // URL del manifest HLS de YouTube
-  const manifestUrl = `https://manifest.googlevideo.com/api/manifest/hls_variant/expire/9999999/id/${id}.m3u8`;
+  nxt()
+})
 
-  // Redirigir al cliente al manifest real
-  res.writeHead(302, { Location: manifestUrl });
-  res.end();
-}
+app.get('/channel/:id.m3u8', async (req, res, nxt) => {
+  try {
+    const url = `https://www.youtube.com/channel/${req.params.id}/live`
+    const { name, stream } = await getLiveStream(url)
+track(req.user, {
+      name: 'feed',
+      params: {
+        engagement_time_msec: '1',
+        name
+      }
+    })
+
+    res.redirect(stream)
+  } catch (err) {
+    nxt(err)
+  }
+})
+
+app.get('/video/:id.m3u8', async (req, res, nxt) => {
+  try {
+    const url = `https://www.youtube.com/watch?v=${req.params.id}`
+    const { name, stream } = await getLiveStream(url)
+track(req.user, {
+      name: 'feed',
+      params: {
+        engagement_time_msec: '1',
+        name
+      }
+    })
+
+    res.redirect(stream)
+  } catch (err) {
+    nxt(err)
+  }
+})
+
+app.get('/cache', async (req, res, nxt) => {
+  try {
+    const keys = await cache.keys('*')
+    // console.log('Keys:', keys)
+
+    const items = []
+
+    for (const key of keys) {
+      const data = JSON.parse(await cache.get(key))
+
+      items.push({
+        url: key,
+        name: data.name,
+        logo: data.logo
+      })
+    }
+
+    res.json(items)
+  } catch (err) {
+    nxt(err)
+  }
+})
+
+app.listen(3000, () => {
+  console.log('express app is running on port 3000')
+  console.log(process.version)
+})
