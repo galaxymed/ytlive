@@ -6,13 +6,13 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1. Obtener la página principal del canal para extraer el handle
-    const channelHtml = await fetch(
-      `https://www.youtube.com/channel/${id}`,
+    // 1. Obtener el handle desde /about (más confiable)
+    const aboutHtml = await fetch(
+      `https://www.youtube.com/channel/${id}/about`,
       { headers: { "User-Agent": "Mozilla/5.0" } }
     ).then(r => r.text());
 
-    const handleMatch = channelHtml.match(/"canonicalBaseUrl":"\\\/(@[^"]+)"/);
+    const handleMatch = aboutHtml.match(/"canonicalBaseUrl":"\\\/(@[^"]+)"/);
 
     if (!handleMatch) {
       return res.status(500).send("Cannot find channel handle");
@@ -26,7 +26,7 @@ export default async function handler(req, res) {
       { headers: { "User-Agent": "Mozilla/5.0" } }
     ).then(r => r.text());
 
-    // 3. Extraer el videoId desde ytInitialPlayerResponse
+    // 3. Extraer el JSON ytInitialPlayerResponse
     const playerMatch = liveHtml.match(/ytInitialPlayerResponse\s*=\s*(\{.*?\});/s);
 
     if (!playerMatch) {
