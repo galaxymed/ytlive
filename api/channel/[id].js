@@ -6,40 +6,42 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1. Obtener HTML del canal /live
-    const html = await fetch(
-      `https://www.youtube.com/channel/${id}/live`,
-      {
-        headers: {
-          "User-Agent": "Mozilla/5.0"
-        }
-      }
+    // 1. Obtener la página principal del canal para extraer el handle
+    const channelHtml = await fetch(
+      `https://www.youtube.com/channel/${id}`,
+      { headers: { "User-Agent": "Mozilla/5.0" } }
     ).then(r => r.text());
 
-    // 2. Extraer el JSON ytInitialData
-    const jsonMatch = html.match(/ytInitialData"\]\s*=\s*(\{.*?\});/s);
+    const handleMatch = channelHtml.match(/"canonicalBaseUrl":"\\\/(@[^"]+)"/);
 
-    if (!jsonMatch) {
-      return res.status(500).send("Cannot parse YouTube page");
+    if (!handleMatch) {
+      return res.status(500).send("Cannot find channel handle");
     }
 
-    const ytInitialData = JSON.parse(jsonMatch[1]);
+    const handle = handleMatch[1]; // ejemplo: @canalxyz
 
-    // 3. Buscar el videoId dentro de streamingData
-    let videoId = null;
+    // 2. Obtener la página /live usando el handle
+    const liveHtml = await fetch(
+      `https://www.youtube.com/${handle}/live`,
+      { headers: { "User-Agent": "Mozilla/5.0" } }
+    ).then(r => r.text());
 
-    try {
-      videoId =
-        ytInitialData.contents.twoColumnBrowseResultsRenderer.tabs[0]
-          .tabRenderer.content.sectionListRenderer.contents[0]
-          .itemSectionRenderer.contents[0].videoRenderer.videoId;
-    } catch (e) {}
+    // 3. Extraer el videoId desde ytInitialPlayerResponse
+    const playerMatch = liveHtml.match(/ytInitialPlayerResponse\s*=\s*(\{.*?\});/s);
+
+    if (!playerMatch) {
+      return res.status(404).send("Channel is not live");
+    }
+
+    const playerData = JSON.parse(playerMatch[1]);
+
+    const videoId = playerData?.videoDetails?.videoId;
 
     if (!videoId) {
       return res.status(404).send("Channel is not live");
     }
 
-    // 4. Llamar al endpoint moderno con clientName=WEB
+    // 4. Obtener el manifest HLS real desde youtubei/v1/player
     const player = await fetch(
       "https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
       {
