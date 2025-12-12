@@ -6,29 +6,56 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1. Obtener la página /live del canal
-    const liveHtml = await fetch(
-      `https://www.youtube.com/channel/${id}/live`,
-      { headers: { "User-Agent": "Mozilla/5.0" } }
-    ).then(r => r.text());
+    // 1. Buscar el live usando youtubei/v1/search
+    const search = await fetch(
+      "https://www.youtube.com/youtubei/v1/search?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": "Mozilla/5.0"
+        },
+        body: JSON.stringify({
+          query: `${id} live`,
+          context: {
+            client: {
+              clientName: "WEB",
+              clientVersion: "2.20240201.01.00"
+            }
+          }
+        })
+      }
+    ).then(r => r.json());
 
-    // 2. Extraer ytInitialPlayerResponse (SIEMPRE aparece si hay live)
-    const playerMatch = liveHtml.match(/ytInitialPlayerResponse\s*=\s*(\{.*?\});/s);
+    // 2. Buscar un videoRenderer con badge LIVE
+    let videoId = null;
 
-    if (!playerMatch) {
-      return res.status(404).send("Channel is not live");
+    const contents =
+      search.contents?.twoColumnSearchResultsRenderer?.primaryContents
+        ?.sectionListRenderer?.contents || [];
+
+    for (const section of contents) {
+      const items = section?.itemSectionRenderer?.contents || [];
+      for (const item of items) {
+        const vr = item.videoRenderer;
+        if (!vr) continue;
+
+        const badges = vr.badges || [];
+        const isLive = badges.some(
+          b => b.metadataBadgeRenderer?.label === "LIVE"
+        );
+
+        if (isLive) {
+          videoId = vr.videoId;
+        }
+      }
     }
-
-    const playerData = JSON.parse(playerMatch[1]);
-
-    // 3. Extraer videoId del live
-    const videoId = playerData?.videoDetails?.videoId;
 
     if (!videoId) {
       return res.status(404).send("Channel is not live");
     }
 
-    // 4. Obtener el manifest HLS real
+    // 3. Obtener el manifest HLS real
     const player = await fetch(
       "https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
       {
@@ -55,7 +82,7 @@ export default async function handler(req, res) {
       return res.status(500).send("No HLS manifest found");
     }
 
-    // 5. Redirigir al manifest real
+    // 4. Redirigir al manifest real
     res.writeHead(302, { Location: hls });
     res.end();
 
