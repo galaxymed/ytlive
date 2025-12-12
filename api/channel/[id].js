@@ -6,42 +6,58 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1. Obtener el handle desde /about (más confiable)
-    const aboutHtml = await fetch(
-      `https://www.youtube.com/channel/${id}/about`,
-      { headers: { "User-Agent": "Mozilla/5.0" } }
-    ).then(r => r.text());
+    // 1. Obtener información del canal usando youtubei/v1/browse
+    const browse = await fetch(
+      "https://www.youtube.com/youtubei/v1/browse?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": "Mozilla/5.0"
+        },
+        body: JSON.stringify({
+          browseId: id,
+          context: {
+            client: {
+              clientName: "WEB",
+              clientVersion: "2.20240201.01.00"
+            }
+          }
+        })
+      }
+    ).then(r => r.json());
 
-    const handleMatch = aboutHtml.match(/"canonicalBaseUrl":"\\\/(@[^"]+)"/);
+    // 2. Buscar el videoId del LIVE
+    let videoId = null;
 
-    if (!handleMatch) {
-      return res.status(500).send("Cannot find channel handle");
-    }
+    try {
+      const tabs = browse.contents.twoColumnBrowseResultsRenderer.tabs;
 
-    const handle = handleMatch[1]; // ejemplo: @canalxyz
+      for (const tab of tabs) {
+        const content = tab?.tabRenderer?.content;
+        const sections = content?.sectionListRenderer?.contents;
 
-    // 2. Obtener la página /live usando el handle
-    const liveHtml = await fetch(
-      `https://www.youtube.com/${handle}/live`,
-      { headers: { "User-Agent": "Mozilla/5.0" } }
-    ).then(r => r.text());
+        if (!sections) continue;
 
-    // 3. Extraer el JSON ytInitialPlayerResponse
-    const playerMatch = liveHtml.match(/ytInitialPlayerResponse\s*=\s*(\{.*?\});/s);
+        for (const section of sections) {
+          const items = section?.itemSectionRenderer?.contents;
+          if (!items) continue;
 
-    if (!playerMatch) {
-      return res.status(404).send("Channel is not live");
-    }
-
-    const playerData = JSON.parse(playerMatch[1]);
-
-    const videoId = playerData?.videoDetails?.videoId;
+          for (const item of items) {
+            const live = item?.videoRenderer;
+            if (live?.badges?.some(b => b.metadataBadgeRenderer?.label === "LIVE")) {
+              videoId = live.videoId;
+            }
+          }
+        }
+      }
+    } catch (e) {}
 
     if (!videoId) {
       return res.status(404).send("Channel is not live");
     }
 
-    // 4. Obtener el manifest HLS real desde youtubei/v1/player
+    // 3. Obtener el manifest HLS real
     const player = await fetch(
       "https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
       {
@@ -68,7 +84,7 @@ export default async function handler(req, res) {
       return res.status(500).send("No HLS manifest found");
     }
 
-    // 5. Redirigir al manifest real
+    // 4. Redirigir al manifest real
     res.writeHead(302, { Location: hls });
     res.end();
 
