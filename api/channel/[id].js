@@ -6,7 +6,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1. Obtener la página /live del canal
+    // 1. Obtener HTML del canal /live
     const html = await fetch(
       `https://www.youtube.com/channel/${id}/live`,
       {
@@ -16,16 +16,30 @@ export default async function handler(req, res) {
       }
     ).then(r => r.text());
 
-    // 2. Extraer el videoId del stream en vivo
-    const match = html.match(/"videoId":"(.*?)"/);
+    // 2. Extraer el JSON ytInitialData
+    const jsonMatch = html.match(/ytInitialData"\]\s*=\s*(\{.*?\});/s);
 
-    if (!match) {
+    if (!jsonMatch) {
+      return res.status(500).send("Cannot parse YouTube page");
+    }
+
+    const ytInitialData = JSON.parse(jsonMatch[1]);
+
+    // 3. Buscar el videoId dentro de streamingData
+    let videoId = null;
+
+    try {
+      videoId =
+        ytInitialData.contents.twoColumnBrowseResultsRenderer.tabs[0]
+          .tabRenderer.content.sectionListRenderer.contents[0]
+          .itemSectionRenderer.contents[0].videoRenderer.videoId;
+    } catch (e) {}
+
+    if (!videoId) {
       return res.status(404).send("Channel is not live");
     }
 
-    const videoId = match[1];
-
-    // 3. Llamar al endpoint moderno de YouTube
+    // 4. Llamar al endpoint moderno con clientName=WEB
     const player = await fetch(
       "https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
       {
@@ -38,8 +52,8 @@ export default async function handler(req, res) {
           videoId,
           context: {
             client: {
-              clientName: "ANDROID",
-              clientVersion: "17.31.35"
+              clientName: "WEB",
+              clientVersion: "2.20240201.01.00"
             }
           }
         })
@@ -52,7 +66,7 @@ export default async function handler(req, res) {
       return res.status(500).send("No HLS manifest found");
     }
 
-    // 4. Redirigir al manifest real
+    // 5. Redirigir al manifest real
     res.writeHead(302, { Location: hls });
     res.end();
 
