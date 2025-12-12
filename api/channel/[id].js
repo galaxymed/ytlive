@@ -1,5 +1,3 @@
-import axios from "axios";
-
 export default async function handler(req, res) {
   const { id } = req.query;
 
@@ -9,17 +7,17 @@ export default async function handler(req, res) {
 
   try {
     // 1. Obtener la página /live del canal
-    const html = await axios.get(
+    const html = await fetch(
       `https://www.youtube.com/channel/${id}/live`,
       {
         headers: {
           "User-Agent": "Mozilla/5.0"
         }
       }
-    );
+    ).then(r => r.text());
 
     // 2. Extraer el videoId del stream en vivo
-    const match = html.data.match(/"videoId":"(.*?)"/);
+    const match = html.match(/"videoId":"(.*?)"/);
 
     if (!match) {
       return res.status(404).send("Channel is not live");
@@ -27,15 +25,28 @@ export default async function handler(req, res) {
 
     const videoId = match[1];
 
-    // 3. Obtener información del video para extraer el manifest HLS
-    const info = await axios.get(
-      `https://www.youtube.com/get_video_info?video_id=${videoId}&html5=1&c=TVHTML5&cver=7.20190319`
-    );
+    // 3. Llamar al endpoint moderno de YouTube
+    const player = await fetch(
+      "https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": "Mozilla/5.0"
+        },
+        body: JSON.stringify({
+          videoId,
+          context: {
+            client: {
+              clientName: "ANDROID",
+              clientVersion: "17.31.35"
+            }
+          }
+        })
+      }
+    ).then(r => r.json());
 
-    const params = new URLSearchParams(info.data);
-    const playerResponse = JSON.parse(params.get("player_response"));
-
-    const hls = playerResponse?.streamingData?.hlsManifestUrl;
+    const hls = player?.streamingData?.hlsManifestUrl;
 
     if (!hls) {
       return res.status(500).send("No HLS manifest found");
@@ -46,6 +57,6 @@ export default async function handler(req, res) {
     res.end();
 
   } catch (err) {
-    res.status(500).send("Error resolving stream");
+    res.status(500).send("Internal error");
   }
 }
