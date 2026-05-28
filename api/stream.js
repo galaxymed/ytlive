@@ -1,6 +1,6 @@
 export default async function handler(req, res) {
   // 1. Pon aquí tu URL exacta de Flussonic sin SSL
-  const FLUSSONIC_URL = "http://38.7.216.171/Invasiva/index.m3u8";
+  const FLUSSONIC_URL = "https://38.7.216.171/Invasiva/index.m3u8";
 
   // Configuramos cabeceras CORS globales para evitar bloqueos del reproductor
   res.setHeader('Access-Control-Allow-Origin', '*');
