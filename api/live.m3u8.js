@@ -2,8 +2,6 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 export default async function handler(req, res) {
   const { fix } = req.query;
-  
-  // Tu URL dinámica o fija apuntando al proxy de Luminous
   const FLUSSONIC_URL = "https://eu.luminous.dev/live/nanduti1020";
 
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -28,7 +26,7 @@ export default async function handler(req, res) {
     let text = await response.text();
     const urlBase = FLUSSONIC_URL.substring(0, FLUSSONIC_URL.lastIndexOf('/') + 1);
 
-    // 1. REESCRITURA ADAPTATIVA BASE (Igual a la anterior)
+    // Formateamos las líneas a rutas absolutas
     let lines = text.split('\n');
     let processedLines = lines.map(line => {
       let trimmed = line.trim();
@@ -46,58 +44,34 @@ export default async function handler(req, res) {
       return line;
     });
 
-    // 2. FILTRO EXCLUSIVO PARA CASPARCG (?fix=true)
-    // Si es CasparCG, interceptamos la lista master multicalidad y extraemos SOLO la mejor calidad activa
+    // MODALIDAD REDIRECCIÓN DIRECTA PARA CASPARCG (?fix=true)
     if (fix === 'true') {
       let targetUrl = null;
-
-      // Buscamos la primera URL de video que aparezca abajo de una etiqueta de calidad (normalmente la mejor va arriba)
+      // Extraemos la primera sub-playlist (Máxima calidad)
       for (let i = 0; i < processedLines.length; i++) {
         let line = processedLines[i].trim();
-        // Si la línea contiene la URI de la sub-playlist o es un enlace directo transformado
         if (line && !line.startsWith('#') && (line.startsWith('http://') || line.startsWith('https://'))) {
           targetUrl = line;
-          break; // Rompemos el ciclo al encontrar la primera (Máxima Calidad)
+          break;
         }
       }
 
-      // Si encontramos la sublista de alta calidad, hacemos un segundo fetch invisible para CasparCG
       if (targetUrl) {
-        const subResponse = await fetch(targetUrl, {
-          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
-        });
-        // ... [Dentro de tu catch/try cuando fix === 'true' y encuentra la targetUrl]
-if (subResponse.ok) {
-  let subText = await subResponse.text();
-  const subUrlBase = targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1);
-
-  let finalSubText = subText.split('\n').map(subLine => {
-    let subTrimmed = subLine.trim();
-    if (subTrimmed && !subTrimmed.startsWith('#') && !subTrimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
-      return subUrlBase + subTrimmed;
-    }
-    return subLine;
-  }).join('\n');
-
-  // EL CAMBIO CRÍTICO: Matamos la caché totalmente para CasparCG
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
-  res.setHeader('Pragma', 'no-cache');
-  res.setHeader('Expires', '0');
-  
-  res.setHeader('Content-Type', 'application/x-mpegURL');
-  return res.status(200).send(finalSubText);
-}
-
+        // En lugar de hacer otro fetch que Node.js pueda romper, 
+        // le hacemos una redirección HTTP 302 directa a CasparCG. 
+        // FFmpeg procesa las redirecciones de forma nativa e impecable.
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+        return res.redirect(302, targetUrl);
       }
     }
 
-    // 3. RESPUESTA NORMAL MULTICALIDAD (Para Web y Apps)
+    // RESPUESTA ADAPTATIVA (Para Web y Apps)
     res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=2, stale-while-revalidate=2');
     res.setHeader('Content-Type', 'application/x-mpegURL');
     return res.status(200).send(processedLines.join('\n'));
 
   } catch (error) {
     res.setHeader('Cache-Control', 'public, max-age=3');
-    return res.status(502).send(`Error de red proxy: ${error.message}`);
+    return res.status(502).send(`Error: ${error.message}`);
   }
 }
