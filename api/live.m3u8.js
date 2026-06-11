@@ -66,23 +66,28 @@ export default async function handler(req, res) {
         const subResponse = await fetch(targetUrl, {
           headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
         });
-        if (subResponse.ok) {
-          let subText = await subResponse.text();
-          const subUrlBase = targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1);
+        // ... [Dentro de tu catch/try cuando fix === 'true' y encuentra la targetUrl]
+if (subResponse.ok) {
+  let subText = await subResponse.text();
+  const subUrlBase = targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1);
 
-          // Convertimos los segmentos de la sublista (.ts) en rutas absolutas para CasparCG
-          let finalSubText = subText.split('\n').map(subLine => {
-            let subTrimmed = subLine.trim();
-            if (subTrimmed && !subTrimmed.startsWith('#') && !subTrimmed.startsWith('http://') && !subTrimmed.startsWith('https://')) {
-              return subUrlBase + subTrimmed;
-            }
-            return subLine;
-          }).join('\n');
+  let finalSubText = subText.split('\n').map(subLine => {
+    let subTrimmed = subLine.trim();
+    if (subTrimmed && !subTrimmed.startsWith('#') && !subTrimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+      return subUrlBase + subTrimmed;
+    }
+    return subLine;
+  }).join('\n');
 
-          res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=1, stale-while-revalidate=1');
-          res.setHeader('Content-Type', 'application/x-mpegURL');
-          return res.status(200).send(finalSubText);
-        }
+  // EL CAMBIO CRÍTICO: Matamos la caché totalmente para CasparCG
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  
+  res.setHeader('Content-Type', 'application/x-mpegURL');
+  return res.status(200).send(finalSubText);
+}
+
       }
     }
 
