@@ -1,8 +1,9 @@
-export default async function handler(req, res) {
-  // 1. Pon aquí tu URL exacta de Flussonic sin SSL
-  const FLUSSONIC_URL = "http://cdn.cl.scl.edge.01.zplay.cl/Invasiva/tracks-v1a1/mono.m3u8";
+// Forzamos a Node.js a omitir errores de certificados SSL inválidos del origen
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
-  // Configuramos cabeceras CORS globales para evitar bloqueos del reproductor
+export default async function handler(req, res) {
+  const FLUSSONIC_URL = "https://cdn.cl.scl.edge.01.zplay.cl/Invasiva/tracks-v1a1/mono.m3u8";
+
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', '*');
@@ -12,7 +13,6 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Usamos el fetch nativo de Node.js (Sin necesidad de importar librerías externas)
     const response = await fetch(FLUSSONIC_URL, {
       method: 'GET',
       headers: {
@@ -21,17 +21,28 @@ export default async function handler(req, res) {
     });
 
     if (!response.ok) {
-      return res.status(response.status).send(`Flussonic respondió con error: ${response.status}`);
+      return res.status(response.status).send(`Error de origen: ${response.status}`);
     }
 
-    const text = await response.text();
+    let text = await response.text();
 
-    // Entregamos el contenido m3u8 de forma segura bajo el HTTPS de Vercel
+    // OBTENER LA BASE DE LA URL (Ej: https://zplay.cl)
+    const urlBase = FLUSSONIC_URL.substring(0, FLUSSONIC_URL.lastIndexOf('/') + 1);
+
+    // REESCRITURA: Si los segmentos no empiezan con http o https, les inyectamos la URL base
+    text = text.split('\n').map(line => {
+      const trimmed = line.trim();
+      // Si la línea no es un comentario de HLS (#) y no empieza con http, es una ruta relativa
+      if (trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+        return urlBase + trimmed;
+      }
+      return line;
+    }).join('\n');
+
     res.setHeader('Content-Type', 'application/x-mpegURL');
     return res.status(200).send(text);
 
   } catch (error) {
-    // Evitamos el crash de la función devolviendo el error en texto limpio
-    return res.status(502).send(`Error al conectar con Flussonic: ${error.message}`);
+    return res.status(502).send(`Error de conexión: ${error.message}`);
   }
 }
