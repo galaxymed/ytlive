@@ -2,7 +2,7 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 export default async function handler(req, res) {
   // Tu URL Master única que cambiarás cuando quieras
-  const FLUSSONIC_URL = "https://cdn.cl.scl.edge.01.zplay.cl/Invasiva/tracks-v1a1/mono.m3u8";
+  const FLUSSONIC_URL = "https://cdn.cl.scl.edge.01.zplay.cl/Invasiva/index.m3u8";
 
   // 1. Cabeceras CORS robustas para que funcione en cualquier web, app o Smart TV
   res.setHeader('Access-Control-Allow-Origin', '*');
