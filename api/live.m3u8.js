@@ -2,7 +2,10 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 export default async function handler(req, res) {
   const { fix } = req.query;
-  const FLUSSONIC_URL = "https://eu.luminous.dev/live/nanduti1020";
+
+  // 1. Definimos las dos URLs
+  const PRIMARY_URL = "https://eu.luminous.dev/live/nanduti1021";
+  const SECONDARY_URL = "https://video.wilohosting.com:19360/invasivatv/invasivatv.m3u8"; // <-- Reemplaza con tu URL secundaria
 
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -12,21 +15,40 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  try {
-    const response = await fetch(FLUSSONIC_URL, {
+  // Función auxiliar para intentar descargar la lista
+  async function fetchStream(url) {
+    const response = await fetch(url, {
       method: 'GET',
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
     });
 
     if (!response.ok) {
-      res.setHeader('Cache-Control', 'public, max-age=3');
-      return res.status(response.status).send(`Error de Luminous: ${response.status}`);
+      throw new Error(`HTTP Error: ${response.status}`);
     }
 
-    let text = await response.text();
-    const urlBase = FLUSSONIC_URL.substring(0, FLUSSONIC_URL.lastIndexOf('/') + 1);
+    const text = await response.text();
+    return { text, activeUrl: url };
+  }
 
-    // Formateamos las líneas a rutas absolutas
+  try {
+    let streamData;
+
+    // 2. Intentar primero con la URL Principal
+    try {
+      streamData = await fetchStream(PRIMARY_URL);
+    } catch (primaryError) {
+      console.warn(`Falló la URL principal (${PRIMARY_URL}). Intentando con la secundaria...`, primaryError.message);
+      
+      // 3. Si falla, intentar con la Secundaria
+      streamData = await fetchStream(SECONDARY_URL);
+    }
+
+    const { text, activeUrl } = streamData;
+
+    // Calculamos el urlBase dinámicamente según la URL que funcionó
+    const urlBase = activeUrl.substring(0, activeUrl.lastIndexOf('/') + 1);
+
+    // 4. Formateamos las líneas a rutas absolutas
     let lines = text.split('\n');
     let processedLines = lines.map(line => {
       let trimmed = line.trim();
@@ -34,7 +56,8 @@ export default async function handler(req, res) {
         return urlBase + trimmed;
       }
       if (trimmed && trimmed.startsWith('#EXT-X-STREAM-INF') && trimmed.includes('URI=')) {
-        return line.replace(/URI="([^"]+)"/, (match, p1) => {
+        // En caso de que haya URIs dentro de las etiquetas de Flussonic/HLS
+        return trimmed.replace(/URI="([^"]+)"/, (match, p1) => {
           if (!p1.startsWith('http://') && !p1.startsWith('https://')) {
             return `URI="${urlBase}${p1}"`;
           }
@@ -44,34 +67,16 @@ export default async function handler(req, res) {
       return line;
     });
 
-    // MODALIDAD REDIRECCIÓN DIRECTA PARA CASPARCG (?fix=true)
-    if (fix === 'true') {
-      let targetUrl = null;
-      // Extraemos la primera sub-playlist (Máxima calidad)
-      for (let i = 0; i < processedLines.length; i++) {
-        let line = processedLines[i].trim();
-        if (line && !line.startsWith('#') && (line.startsWith('http://') || line.startsWith('https://'))) {
-          targetUrl = line;
-          break;
-        }
-      }
-
-      if (targetUrl) {
-        // En lugar de hacer otro fetch que Node.js pueda romper, 
-        // le hacemos una redirección HTTP 302 directa a CasparCG. 
-        // FFmpeg procesa las redirecciones de forma nativa e impecable.
-        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
-        return res.redirect(302, targetUrl);
-      }
-    }
-
-    // RESPUESTA ADAPTATIVA (Para Web y Apps)
-    res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=2, stale-while-revalidate=2');
-    res.setHeader('Content-Type', 'application/x-mpegURL');
+    // Configuramos el header para que sea interpretado como M3U8
+    res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    
     return res.status(200).send(processedLines.join('\n'));
 
-  } catch (error) {
+  } catch (finalError) {
+    // Si ambas fallaron o hubo un problema grave
+    console.error('Ambas fuentes M3U8 fallaron:', finalError.message);
     res.setHeader('Cache-Control', 'public, max-age=3');
-    return res.status(502).send(`Error: ${error.message}`);
+    return res.status(502).send('Error: Ninguna de las fuentes M3U8 está disponible.');
   }
-}
+                                     }
